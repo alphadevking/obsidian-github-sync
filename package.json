@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-github-sync",
+  "version": "0.0.1",
+  "main": "main.js",
+  "repository": "https://github.com/alphadevking/obsidian-github-sync",
+  "license": "MIT",
+  "author": "alphadevking",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "obsidian": "^1.7.2"
+  }
+}

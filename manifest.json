@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-github-sync",
+	"name": "GitHub Sync Plugin",
+	"version": "0.0.1",
+	"minAppVersion": "0.0.1",
+	"description": "Sync your Obsidian vault with GitHub.",
+	"author": "alphadevking",
+	"authorUrl": "https://github.com/alphadevking",
+	"isDesktopOnly": false
+}
