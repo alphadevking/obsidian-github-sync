@@ -34,12 +34,25 @@ export default class ObsidianGitHubSync extends Plugin {
       await this.syncVaultWithGitHub();
     });
 
-    // Add a command to manually trigger sync
+    // Add pull button in ribbon
+    this.addRibbonIcon("cloud-download", "Pull Updates from GitHub", async () => {
+      await this.pullUpdatesFromGitHub();
+    });
+
+    // Add commands for syncing and pulling
     this.addCommand({
       id: "sync-vault",
       name: "Sync Vault with GitHub",
       callback: async () => {
         await this.syncVaultWithGitHub();
+      },
+    });
+
+    this.addCommand({
+      id: "pull-updates",
+      name: "Pull Updates from GitHub",
+      callback: async () => {
+        await this.pullUpdatesFromGitHub();
       },
     });
 
@@ -53,6 +66,9 @@ export default class ObsidianGitHubSync extends Plugin {
     console.log("Obsidian GitHub Sync Plugin Unloaded.");
   }
 
+  /**
+   * Sync vault files with GitHub repository, detecting changes and resolving them.
+   */
   private async syncVaultWithGitHub() {
     try {
       if (!this.settings.githubToken || !this.isValidRepo(this.settings.githubRepo)) {
@@ -104,6 +120,77 @@ export default class ObsidianGitHubSync extends Plugin {
     }
   }
 
+  /**
+   * Pull the latest updates from the GitHub repository into the vault.
+   */
+  private async pullUpdatesFromGitHub() {
+    try {
+      if (!this.settings.githubToken || !this.isValidRepo(this.settings.githubRepo)) {
+        new Notice("GitHub token or repository settings are invalid. Please configure them in settings.");
+        return;
+      }
+
+      new Notice("Pulling updates from GitHub...");
+      const githubFiles = await this.fetchGitHubRepoFiles();
+
+      for (const githubFilePath of githubFiles) {
+        const normalizedPath = githubFilePath; // Keep paths normalized with forward slashes
+        const remoteContent = await this.getRemoteFileContent(githubFilePath);
+
+        if (remoteContent !== null) {
+          const parentFolderPath = normalizedPath.split("/").slice(0, -1).join("/");
+          if (parentFolderPath) {
+            await this.ensureFolderExists(parentFolderPath); // Ensure folders exist
+          }
+
+          const localFile = this.app.vault.getAbstractFileByPath(normalizedPath);
+          if (localFile instanceof TFile) {
+            const localContent = await this.app.vault.read(localFile);
+
+            if (localContent !== remoteContent) {
+              await this.app.vault.modify(localFile, remoteContent);
+              console.log(`Updated file: ${normalizedPath}`);
+            }
+          } else {
+            await this.app.vault.create(normalizedPath, remoteContent);
+            console.log(`Created new file: ${normalizedPath}`);
+          }
+        }
+      }
+
+      new Notice("Vault successfully updated with changes from GitHub!");
+    } catch (error) {
+      console.error("Error during pull updates:", error);
+      new Notice("Failed to pull updates from GitHub. Check the console for details.");
+    }
+  }
+
+  /**
+ * Ensures that a folder exists. If it does not, creates the necessary folder structure.
+ * @param folderPath - The folder path to ensure exists.
+ */
+  private async ensureFolderExists(folderPath: string) {
+    // Normalize the path to handle different operating systems
+    const normalizedPath = folderPath.split(/[\\\/]/).join("/"); // Converts all separators to `/`
+    const segments = normalizedPath.split("/"); // Split the path into its segments
+    let currentPath = "";
+
+    // Iterate through the path segments to check and create each level of the folder structure
+    for (const segment of segments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      const folder = this.app.vault.getAbstractFileByPath(currentPath);
+
+      if (!folder) {
+        // If the folder doesn't exist, create it
+        await this.app.vault.createFolder(currentPath);
+      }
+    }
+  }
+
+  /**
+     * Fetch the list of all files in the GitHub repository.
+     * @returns A list of file paths from the repository.
+     */
   private async fetchGitHubRepoFiles(): Promise<string[]> {
     const files: string[] = [];
     const traverse = async (path: string = "") => {
@@ -126,6 +213,8 @@ export default class ObsidianGitHubSync extends Plugin {
               }
             }
           }
+        } else {
+          console.error(`Error traversing path ${path}:`, await response.json());
         }
       } catch (error) {
         console.error(`Error fetching GitHub files at ${path}:`, error);
@@ -254,6 +343,10 @@ export default class ObsidianGitHubSync extends Plugin {
     await this.saveData(this.settings);
   }
 
+  /**
+   * Validates the GitHub token stored in settings by attempting to fetch the authenticated user's data.
+   * @returns A boolean indicating whether the token is valid or not.
+   */
   private async validateToken(): Promise<boolean> {
     try {
       const response = await fetch(`https://api.github.com/user`, {
@@ -267,6 +360,11 @@ export default class ObsidianGitHubSync extends Plugin {
     }
   }
 
+  /**
+   * Validate if the repository string is in a valid format.
+   * @param repo Repository string to validate.
+   * @returns True if valid, false otherwise.
+   */
   public isValidRepo(repo: string): boolean {
     const regex = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
     return regex.test(repo);

@@ -34,12 +34,23 @@ class ObsidianGitHubSync extends obsidian_1.Plugin {
             this.addRibbonIcon("refresh-cw", "Sync Vault with GitHub", () => __awaiter(this, void 0, void 0, function* () {
                 yield this.syncVaultWithGitHub();
             }));
-            // Add a command to manually trigger sync
+            // Add pull button in ribbon
+            this.addRibbonIcon("cloud-download", "Pull Updates from GitHub", () => __awaiter(this, void 0, void 0, function* () {
+                yield this.pullUpdatesFromGitHub();
+            }));
+            // Add commands for syncing and pulling
             this.addCommand({
                 id: "sync-vault",
                 name: "Sync Vault with GitHub",
                 callback: () => __awaiter(this, void 0, void 0, function* () {
                     yield this.syncVaultWithGitHub();
+                }),
+            });
+            this.addCommand({
+                id: "pull-updates",
+                name: "Pull Updates from GitHub",
+                callback: () => __awaiter(this, void 0, void 0, function* () {
+                    yield this.pullUpdatesFromGitHub();
                 }),
             });
             // Add settings tab
@@ -50,6 +61,9 @@ class ObsidianGitHubSync extends obsidian_1.Plugin {
     onunload() {
         console.log("Obsidian GitHub Sync Plugin Unloaded.");
     }
+    /**
+     * Sync vault files with GitHub repository, detecting changes and resolving them.
+     */
     syncVaultWithGitHub() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
@@ -93,6 +107,73 @@ class ObsidianGitHubSync extends obsidian_1.Plugin {
             }
         });
     }
+    /**
+     * Pull the latest updates from the GitHub repository into the vault.
+     */
+    pullUpdatesFromGitHub() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                if (!this.settings.githubToken || !this.isValidRepo(this.settings.githubRepo)) {
+                    new obsidian_1.Notice("GitHub token or repository settings are invalid. Please configure them in settings.");
+                    return;
+                }
+                new obsidian_1.Notice("Pulling updates from GitHub...");
+                const githubFiles = yield this.fetchGitHubRepoFiles();
+                for (const githubFilePath of githubFiles) {
+                    const normalizedPath = githubFilePath; // Keep paths normalized with forward slashes
+                    const remoteContent = yield this.getRemoteFileContent(githubFilePath);
+                    if (remoteContent !== null) {
+                        const parentFolderPath = normalizedPath.split("/").slice(0, -1).join("/");
+                        if (parentFolderPath) {
+                            yield this.ensureFolderExists(parentFolderPath); // Ensure folders exist
+                        }
+                        const localFile = this.app.vault.getAbstractFileByPath(normalizedPath);
+                        if (localFile instanceof obsidian_1.TFile) {
+                            const localContent = yield this.app.vault.read(localFile);
+                            if (localContent !== remoteContent) {
+                                yield this.app.vault.modify(localFile, remoteContent);
+                                console.log(`Updated file: ${normalizedPath}`);
+                            }
+                        }
+                        else {
+                            yield this.app.vault.create(normalizedPath, remoteContent);
+                            console.log(`Created new file: ${normalizedPath}`);
+                        }
+                    }
+                }
+                new obsidian_1.Notice("Vault successfully updated with changes from GitHub!");
+            }
+            catch (error) {
+                console.error("Error during pull updates:", error);
+                new obsidian_1.Notice("Failed to pull updates from GitHub. Check the console for details.");
+            }
+        });
+    }
+    /**
+   * Ensures that a folder exists. If it does not, creates the necessary folder structure.
+   * @param folderPath - The folder path to ensure exists.
+   */
+    ensureFolderExists(folderPath) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // Normalize the path to handle different operating systems
+            const normalizedPath = folderPath.split(/[\\\/]/).join("/"); // Converts all separators to `/`
+            const segments = normalizedPath.split("/"); // Split the path into its segments
+            let currentPath = "";
+            // Iterate through the path segments to check and create each level of the folder structure
+            for (const segment of segments) {
+                currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+                const folder = this.app.vault.getAbstractFileByPath(currentPath);
+                if (!folder) {
+                    // If the folder doesn't exist, create it
+                    yield this.app.vault.createFolder(currentPath);
+                }
+            }
+        });
+    }
+    /**
+       * Fetch the list of all files in the GitHub repository.
+       * @returns A list of file paths from the repository.
+       */
     fetchGitHubRepoFiles() {
         return __awaiter(this, void 0, void 0, function* () {
             const files = [];
@@ -113,6 +194,9 @@ class ObsidianGitHubSync extends obsidian_1.Plugin {
                                 }
                             }
                         }
+                    }
+                    else {
+                        console.error(`Error traversing path ${path}:`, yield response.json());
                     }
                 }
                 catch (error) {
@@ -240,6 +324,10 @@ class ObsidianGitHubSync extends obsidian_1.Plugin {
             yield this.saveData(this.settings);
         });
     }
+    /**
+     * Validates the GitHub token stored in settings by attempting to fetch the authenticated user's data.
+     * @returns A boolean indicating whether the token is valid or not.
+     */
     validateToken() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
@@ -254,6 +342,11 @@ class ObsidianGitHubSync extends obsidian_1.Plugin {
             }
         });
     }
+    /**
+     * Validate if the repository string is in a valid format.
+     * @param repo Repository string to validate.
+     * @returns True if valid, false otherwise.
+     */
     isValidRepo(repo) {
         const regex = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
         return regex.test(repo);
