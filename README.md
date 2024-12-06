@@ -11,9 +11,17 @@ Obsidian GitHub Sync is a plugin that enables synchronization of your Obsidian V
 
 ## Installation
 
-1. Download or clone the plugin repository to your local machine.
-2. Place the plugin folder in the `.obsidian/plugins/` directory of your Obsidian Vault.
-3. Enable the plugin in **Settings > Community Plugins**.
+1. Clone the repository or download the source code.
+2. Navigate to the plugin folder using your terminal.
+3. Run the following command to compile the TypeScript code into JavaScript:
+
+   ```bash
+   tsc
+   ```
+
+   This will generate the `main.js` file in the plugin directory.
+4. Place the plugin folder in the `.obsidian/plugins/` directory of your Obsidian Vault.
+5. Enable the plugin in **Settings > Community Plugins**.
 
 ## Configuration
 
@@ -62,6 +70,8 @@ Obsidian GitHub Sync is a plugin that enables synchronization of your Obsidian V
   - Ensure the repository is specified as `username/repo`.
 - **Failed to Sync**:
   - Check the Obsidian console (`Ctrl+Shift+I` or `Cmd+Option+I`) for error details.
+- **`main.js` Missing**:
+  - Make sure to run the `tsc` command to compile the TypeScript code.
 
 ## Notes
 
@@ -80,3 +90,7 @@ This plugin is open-source and licensed under the [MIT License](LICENSE).
 
 - [Obsidian](https://obsidian.md/)
 - [GitHub](https://github.com/)
+
+## Author
+
+- [alphadevking](https://github.com/alphadevking)
