@@ -6,7 +6,7 @@ interface GitHubSyncSettings {
 }
 
 const DEFAULT_SETTINGS: GitHubSyncSettings = {
-  githubRepo: "your-username/your-repo", // Replace with default repository
+  githubRepo: "your-username/your-repo",
   githubToken: "",
 };
 
@@ -19,7 +19,10 @@ export default class ObsidianGitHubSync extends Plugin {
     // Load settings
     await this.loadSettings();
 
-    // Validate and set up GitHub token
+    // Notices for loading
+    new Notice("GitHub Sync Plugin loaded!");
+
+    // Validate GitHub token
     if (this.settings.githubToken) {
       const isValid = await this.validateToken();
       if (!isValid) {
@@ -29,12 +32,14 @@ export default class ObsidianGitHubSync extends Plugin {
       new Notice("GitHub token missing! Please set it in the settings.");
     }
 
-    // Add a ribbon icon to trigger sync
+    // Debug platform details
+    console.log("Running on platform:", navigator.userAgent);
+
+    // Add ribbon icons for desktop and mobile
     this.addRibbonIcon("refresh-cw", "Sync Vault with GitHub", async () => {
       await this.syncVaultWithGitHub();
     });
 
-    // Add pull button in ribbon
     this.addRibbonIcon("cloud-download", "Pull Updates from GitHub", async () => {
       await this.pullUpdatesFromGitHub();
     });
@@ -66,21 +71,21 @@ export default class ObsidianGitHubSync extends Plugin {
     console.log("Obsidian GitHub Sync Plugin Unloaded.");
   }
 
-  /**
-   * Sync vault files with GitHub repository, detecting changes and resolving them.
-   */
   private async syncVaultWithGitHub() {
     try {
       if (!this.settings.githubToken || !this.isValidRepo(this.settings.githubRepo)) {
-        new Notice(
-          "GitHub token or repository settings are invalid. Please configure them in settings."
-        );
+        new Notice("GitHub token or repository settings are invalid. Please configure them in settings.");
         return;
       }
 
       new Notice("Syncing vault with GitHub...");
+      console.log("Starting vault sync...");
+
       const vaultFiles = this.app.vault.getAllLoadedFiles();
       const githubFiles = await this.fetchGitHubRepoFiles();
+
+      console.log("Vault files:", vaultFiles.map((f) => (f instanceof TFile ? f.path : "")));
+      console.log("GitHub files:", githubFiles);
 
       const vaultPaths = new Set(
         vaultFiles.map((file) => (file instanceof TFile ? file.path : ""))
@@ -91,6 +96,7 @@ export default class ObsidianGitHubSync extends Plugin {
       // Remove files on GitHub not present in the vault
       for (const githubFile of githubFiles) {
         if (!vaultPaths.has(githubFile)) {
+          console.log(`Deleting GitHub file not in vault: ${githubFile}`);
           await this.deleteFileFromGitHub(githubFile);
           changesDetected = true;
         }
@@ -103,6 +109,7 @@ export default class ObsidianGitHubSync extends Plugin {
           const remoteContent = await this.getRemoteFileContent(file.path);
 
           if (remoteContent !== localContent) {
+            console.log(`Uploading or updating file on GitHub: ${file.path}`);
             await this.uploadFileToGitHub(file.path, localContent);
             changesDetected = true;
           }
@@ -120,9 +127,6 @@ export default class ObsidianGitHubSync extends Plugin {
     }
   }
 
-  /**
-   * Pull the latest updates from the GitHub repository into the vault.
-   */
   private async pullUpdatesFromGitHub() {
     try {
       if (!this.settings.githubToken || !this.isValidRepo(this.settings.githubRepo)) {
@@ -131,29 +135,32 @@ export default class ObsidianGitHubSync extends Plugin {
       }
 
       new Notice("Pulling updates from GitHub...");
+      console.log("Starting pull updates...");
+
       const githubFiles = await this.fetchGitHubRepoFiles();
+      console.log("GitHub files:", githubFiles);
 
       for (const githubFilePath of githubFiles) {
-        const normalizedPath = githubFilePath; // Keep paths normalized with forward slashes
-        const remoteContent = await this.getRemoteFileContent(githubFilePath);
+        const normalizedPath = githubFilePath;
+        console.log("Processing file:", normalizedPath);
 
+        const remoteContent = await this.getRemoteFileContent(githubFilePath);
         if (remoteContent !== null) {
           const parentFolderPath = normalizedPath.split("/").slice(0, -1).join("/");
           if (parentFolderPath) {
-            await this.ensureFolderExists(parentFolderPath); // Ensure folders exist
+            await this.ensureFolderExists(parentFolderPath);
           }
 
           const localFile = this.app.vault.getAbstractFileByPath(normalizedPath);
           if (localFile instanceof TFile) {
             const localContent = await this.app.vault.read(localFile);
-
             if (localContent !== remoteContent) {
+              console.log(`Updating local file: ${normalizedPath}`);
               await this.app.vault.modify(localFile, remoteContent);
-              console.log(`Updated file: ${normalizedPath}`);
             }
           } else {
+            console.log(`Creating new local file: ${normalizedPath}`);
             await this.app.vault.create(normalizedPath, remoteContent);
-            console.log(`Created new file: ${normalizedPath}`);
           }
         }
       }
@@ -165,32 +172,22 @@ export default class ObsidianGitHubSync extends Plugin {
     }
   }
 
-  /**
- * Ensures that a folder exists. If it does not, creates the necessary folder structure.
- * @param folderPath - The folder path to ensure exists.
- */
   private async ensureFolderExists(folderPath: string) {
-    // Normalize the path to handle different operating systems
-    const normalizedPath = folderPath.split(/[\\\/]/).join("/"); // Converts all separators to `/`
-    const segments = normalizedPath.split("/"); // Split the path into its segments
+    console.log(`Ensuring folder exists: ${folderPath}`);
+    const segments = folderPath.split("/");
     let currentPath = "";
 
-    // Iterate through the path segments to check and create each level of the folder structure
     for (const segment of segments) {
       currentPath = currentPath ? `${currentPath}/${segment}` : segment;
       const folder = this.app.vault.getAbstractFileByPath(currentPath);
 
       if (!folder) {
-        // If the folder doesn't exist, create it
+        console.log(`Creating folder: ${currentPath}`);
         await this.app.vault.createFolder(currentPath);
       }
     }
   }
 
-  /**
-     * Fetch the list of all files in the GitHub repository.
-     * @returns A list of file paths from the repository.
-     */
   private async fetchGitHubRepoFiles(): Promise<string[]> {
     const files: string[] = [];
     const traverse = async (path: string = "") => {
@@ -226,63 +223,46 @@ export default class ObsidianGitHubSync extends Plugin {
   }
 
   private async deleteFileFromGitHub(filePath: string) {
-    try {
-      const sha = await this.getCurrentSha(filePath);
-      if (!sha) return;
+    const sha = await this.getCurrentSha(filePath);
+    if (!sha) return;
 
-      const response = await fetch(
-        `https://api.github.com/repos/${this.settings.githubRepo}/contents/${filePath}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `token ${this.settings.githubToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: `Delete file: ${filePath}`,
-            sha,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        console.error(`Failed to delete file: ${filePath}`, await response.json());
-      } else {
-        console.log(`Deleted file: ${filePath}`);
+    console.log(`Deleting file: ${filePath}`);
+    const response = await fetch(
+      `https://api.github.com/repos/${this.settings.githubRepo}/contents/${filePath}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `token ${this.settings.githubToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: `Delete file: ${filePath}`, sha }),
       }
-    } catch (error) {
-      console.error(`Error deleting file: ${filePath}`, error);
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to delete file: ${filePath}`, await response.json());
     }
   }
 
   private async uploadFileToGitHub(filePath: string, content: string) {
-    try {
-      const encodedContent = Buffer.from(content).toString("base64");
-      const sha = await this.getCurrentSha(filePath);
+    const encodedContent = Buffer.from(content).toString("base64");
+    const sha = await this.getCurrentSha(filePath);
 
-      const response = await fetch(
-        `https://api.github.com/repos/${this.settings.githubRepo}/contents/${filePath}`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `token ${this.settings.githubToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: `Update file: ${filePath}`,
-            content: encodedContent,
-            sha,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        console.error(`Failed to upload file: ${filePath}`, await response.json());
-      } else {
-        console.log(`Uploaded file: ${filePath}`);
+    console.log(`Uploading file: ${filePath}`);
+    const response = await fetch(
+      `https://api.github.com/repos/${this.settings.githubRepo}/contents/${filePath}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `token ${this.settings.githubToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: `Update file: ${filePath}`, content: encodedContent, sha }),
       }
-    } catch (error) {
-      console.error(`Error uploading file: ${filePath}`, error);
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to upload file: ${filePath}`, await response.json());
     }
   }
 
@@ -297,18 +277,17 @@ export default class ObsidianGitHubSync extends Plugin {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.content) {
-          return Buffer.from(data.content, "base64").toString("utf-8");
-        }
+        return Buffer.from(data.content, "base64").toString("utf-8");
       } else if (response.status === 404) {
-        return null; // File does not exist remotely
+        return null;
       } else {
-        console.error(`Failed to fetch remote content for ${filePath}:`, await response.json());
+        console.error(`Error fetching remote content for file ${filePath}:`, await response.json());
+        return null;
       }
     } catch (error) {
-      console.error(`Error fetching remote content for ${filePath}:`, error);
+      console.error(`Error fetching remote content for file ${filePath}:`, error);
+      return null;
     }
-    return null;
   }
 
   private async getCurrentSha(filePath: string): Promise<string | null> {
@@ -322,34 +301,21 @@ export default class ObsidianGitHubSync extends Plugin {
 
       if (response.ok) {
         const data = await response.json();
-        return data.sha;
-      } else if (response.status === 404) {
-        return null;
-      } else {
-        console.error(`Failed to get SHA for ${filePath}:`, await response.json());
-        return null;
+        return data.sha || null;
       }
     } catch (error) {
-      console.error(`Error fetching SHA for ${filePath}:`, error);
-      return null;
+      console.error(`Error fetching SHA for file ${filePath}:`, error);
     }
+    return null;
   }
 
-  async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  private isValidRepo(repo: string): boolean {
+    return /^[\w-]+\/[\w-]+$/.test(repo);
   }
 
-  async saveSettings() {
-    await this.saveData(this.settings);
-  }
-
-  /**
-   * Validates the GitHub token stored in settings by attempting to fetch the authenticated user's data.
-   * @returns A boolean indicating whether the token is valid or not.
-   */
   private async validateToken(): Promise<boolean> {
     try {
-      const response = await fetch(`https://api.github.com/user`, {
+      const response = await fetch("https://api.github.com/user", {
         headers: { Authorization: `token ${this.settings.githubToken}` },
       });
 
@@ -360,14 +326,12 @@ export default class ObsidianGitHubSync extends Plugin {
     }
   }
 
-  /**
-   * Validate if the repository string is in a valid format.
-   * @param repo Repository string to validate.
-   * @returns True if valid, false otherwise.
-   */
-  public isValidRepo(repo: string): boolean {
-    const regex = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-    return regex.test(repo);
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
 }
 
@@ -381,33 +345,29 @@ class GitHubSyncSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
-
     containerEl.empty();
+
     containerEl.createEl("h2", { text: "GitHub Sync Settings" });
 
     new Setting(containerEl)
       .setName("GitHub Repository")
-      .setDesc("Enter the repository (user/repo) for syncing data.")
+      .setDesc("Your GitHub repository in the format 'username/repo'")
       .addText((text) =>
         text
-          .setPlaceholder("e.g., user/repo")
+          .setPlaceholder("username/repo")
           .setValue(this.plugin.settings.githubRepo)
           .onChange(async (value) => {
-            if (this.plugin.isValidRepo(value)) {
-              this.plugin.settings.githubRepo = value;
-              await this.plugin.saveSettings();
-            } else {
-              new Notice("Invalid repository format. Use 'user/repo'.");
-            }
+            this.plugin.settings.githubRepo = value;
+            await this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
       .setName("GitHub Token")
-      .setDesc("Enter your GitHub personal access token.")
+      .setDesc("Your GitHub personal access token")
       .addText((text) =>
         text
-          .setPlaceholder("Paste token here")
+          .setPlaceholder("Enter your token")
           .setValue(this.plugin.settings.githubToken)
           .onChange(async (value) => {
             this.plugin.settings.githubToken = value;
